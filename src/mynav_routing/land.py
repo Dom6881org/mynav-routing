@@ -1,12 +1,23 @@
 """Masque de terre : empêche le routeur de traverser la côte.
 
 Données attendues : polygones de terre (GeoJSON Polygon / MultiPolygon, coordonnées
-[lon, lat]), par exemple OpenStreetMap land polygons ou GSHHG, chargés hors ligne.
+[lon, lat]), par exemple OpenStreetMap land polygons ou GSHHG.
+
+Gestion hors ligne (exécution 100 % offline à bord) : le GeoJSON téléchargé est
+mis en cache sur disque ; hors connexion, le cache est utilisé en repli. Un fichier
+local peut être imposé via MYNAV_ROUTING_LAND_FILE, le répertoire de cache via
+MYNAV_ROUTING_CACHE_DIR (défaut : ~/.cache/mynav-routing). Si aucune donnée n'est
+disponible, LandDataError est levée.
 """
+
 from __future__ import annotations
 
+import hashlib
 import json
+import os
+import tempfile
 from functools import lru_cache
+from pathlib import Path
 from urllib.request import urlopen
 
 import numpy as np
@@ -18,11 +29,79 @@ OPEN_LAND_URL = (
     "geojson/ne_10m_land.geojson"
 )
 
+LAND_FILE_ENV = "MYNAV_ROUTING_LAND_FILE"
+CACHE_DIR_ENV = "MYNAV_ROUTING_CACHE_DIR"
 
-@lru_cache(maxsize=1)
+
+class LandDataError(ValueError):
+    """Masque de terre indisponible (hors ligne et aucun cache local).
+
+    Sous-classe de ValueError : le backend MyNavApp traduit déjà les ValueError
+    levées par route() en message utilisateur (RoutingError).
+    """
+
+
+def _cache_dir() -> Path:
+    override = os.environ.get(CACHE_DIR_ENV)
+    if override:
+        return Path(override)
+    return Path.home() / ".cache" / "mynav-routing"
+
+
+def _cache_path(url: str) -> Path:
+    digest = hashlib.sha1(url.encode("utf-8")).hexdigest()[:16]
+    return _cache_dir() / f"{digest}.geojson"
+
+
+def _write_cache(path: Path, data) -> None:
+    """Écrit le cache de façon atomique ; best effort (répertoire en lecture seule = ignoré)."""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=path.name + ".", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(data, handle)
+            os.replace(tmp, path)
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+    except OSError:
+        pass
+
+
+@lru_cache(maxsize=4)
 def _load_open_land_geojson(url):
-    with urlopen(url, timeout=30) as response:
-        return json.loads(response.read())
+    # 1. Fichier local explicite (prioritaire : ex. GeoJSON embarqué à bord).
+    local = os.environ.get(LAND_FILE_ENV)
+    if local:
+        try:
+            return json.loads(Path(local).read_text(encoding="utf-8"))
+        except (OSError, ValueError) as error:
+            raise LandDataError(f"{LAND_FILE_ENV}={local} illisible : {error}") from error
+    cache = _cache_path(url)
+    # 2. Téléchargement, puis mise à jour du cache disque.
+    try:
+        with urlopen(url, timeout=30) as response:
+            data = json.loads(response.read())
+    except (OSError, ValueError):
+        data = None
+    if data is not None:
+        _write_cache(cache, data)
+        return data
+    # 3. Hors ligne : repli sur le cache disque.
+    if cache.is_file():
+        try:
+            return json.loads(cache.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            pass
+    raise LandDataError(
+        "Masque de terre indisponible : hors connexion et aucun cache local "
+        f"({cache}). Lancez un premier routage en ligne pour remplir le cache, "
+        f"ou définissez {LAND_FILE_ENV} vers un fichier GeoJSON de terres."
+    )
 
 
 class LandMask:
@@ -65,7 +144,8 @@ class LandMask:
 
     @classmethod
     def from_open_data(cls, sample_nm=0.25, url=OPEN_LAND_URL):
-        """Télécharge les terres Natural Earth une fois et les charge localement."""
+        """Charge les terres Natural Earth : fichier local MYNAV_ROUTING_LAND_FILE,
+        sinon téléchargement mis en cache, sinon repli sur le cache (hors ligne)."""
         return cls.from_geojson(_load_open_land_geojson(url), sample_nm=sample_nm)
 
     def is_land(self, lat, lon):
