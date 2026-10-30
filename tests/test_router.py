@@ -95,8 +95,10 @@ def test_landmask_geojson():
     assert not land.is_land(42.6, 3.1)
 
 
-def test_landmask_charge_les_donnees_ouvertes(monkeypatch):
+def test_landmask_charge_les_donnees_ouvertes(monkeypatch, tmp_path):
     import mynav_routing.land as land_module
+    from mynav_routing.land import CACHE_DIR_ENV
+    monkeypatch.setenv(CACHE_DIR_ENV, str(tmp_path / "cache"))
 
     geojson = {
         "type": "Polygon",

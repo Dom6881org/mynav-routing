@@ -38,7 +38,10 @@ Sens de la dépendance : MyNavApp -> mynav-routing, jamais l'inverse.
 - Départ : position courante NMEA (RMC/VTG) fournie par le backend
 - Polaire : examples/polaire-sugar.pol (à recalibrer avec les logs enregistrés par MyNavApp)
 - Vent : GRIB téléchargé à terre (GFS / ICON / AROME, open data) ou ConstantWind
-- Terres : les polygones Natural Earth sont téléchargés automatiquement au premier routage
+- Terres : les polygones Natural Earth sont téléchargés automatiquement au premier routage,
+  puis mis en cache sur disque (~/.cache/mynav-routing, ou MYNAV_ROUTING_CACHE_DIR).
+  Hors ligne, le cache est utilisé en repli ; MYNAV_ROUTING_LAND_FILE permet d'imposer
+  un fichier GeoJSON local (ex. embarqué à bord). Sans aucune donnée : LandDataError.
 - Sortie : GeoJSON affiché sur la carte, recalcul au fil de la traversée
 
 Le calcul du masque est local. Pour désactiver explicitement la contrainte terrestre,
