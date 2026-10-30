@@ -21,3 +21,6 @@ packages = ["src/mynav_routing"]
 
 [tool.ruff]
 line-length = 100
+
+[tool.ruff.lint]
+extend-select = ["I", "RUF"]
