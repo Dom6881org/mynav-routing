@@ -17,7 +17,7 @@ def haversine_nm(lat1, lon1, lat2, lon2):
 
 def move_nm(lat, lon, heading_deg, dist_nm):
     """Avance le long d'un grand cercle. Cap 0 = nord. Retourne (lat, lon) en degrés."""
-    d = np.radians(np.asarray(dist_nm, dtype=float) / NM_PER_RADIAN)
+    d = np.asarray(dist_nm, dtype=float) / NM_PER_RADIAN
     tc = np.radians(np.asarray(heading_deg, dtype=float))
     p1 = np.radians(np.asarray(lat, dtype=float))
     l1 = np.radians(np.asarray(lon, dtype=float))
