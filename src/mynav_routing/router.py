@@ -40,6 +40,7 @@ def route(
     bin_deg=0.25,
     arrival_nm=5.0,
     tws_max=None,
+    land=None,
 ):
     """Calcule la route la plus rapide de start vers finish.
 
@@ -48,7 +49,8 @@ def route(
     dt : pas des isochrones (s) ; horizon_h : durée max (h) ;
     heading_step : pas des caps candidats (degrés) ;
     bin_deg : maille d'élagage (degrés) ; arrival_nm : rayon d'arrivée (mn) ;
-    tws_max : contrainte de confort (kt), None = illimité.
+    tws_max : contrainte de confort (kt), None = illimité ;
+    land : LandMask optionnel ; les tronçons qui touchent la terre sont écartés.
     """
     fronts = [
         {
@@ -90,6 +92,11 @@ def route(
             parent[keep],
         )
         lat2, lon2 = move_nm(lat_r, lon_r, hdg, bs * dt / 3600.0)
+        if land is not None:
+            ok = ~land.crosses_land(lat_r, lon_r, lat2, lon2)
+            lat2, lon2, hdg, bs, parent = lat2[ok], lon2[ok], hdg[ok], bs[ok], parent[ok]
+            if len(lat2) == 0:
+                break
         # Élagage : un seul point par cellule de bin_deg degrés
         key = np.round(lat2 / bin_deg) * 4096.0 + np.round(lon2 / bin_deg)
         _, idx = np.unique(key, return_index=True)
@@ -102,11 +109,13 @@ def route(
         )
         d = haversine_nm(lat2, lon2, float(finish[0]), float(finish[1]))
         reached = d <= np.maximum(arrival_nm, bs * dt / 3600.0)
+        if land is not None and reached.any():
+            reached &= ~land.crosses_land(lat2, lon2, float(finish[0]), float(finish[1]))
         fronts.append(
             {"lat": lat2, "lon": lon2, "hdg": hdg, "bs": bs, "parent": parent}
         )
         if reached.any():
-            i = int(np.argmin(d))
+            i = int(np.argmin(np.where(reached, d, np.inf)))
             coords, bs_list, hdg_list = _traceback(fronts, i)
             if len(bs_list) > 1 and bs_list[0] == 0.0:
                 bs_list[0] = bs_list[1]
