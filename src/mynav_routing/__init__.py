@@ -4,11 +4,11 @@ from .polar import Polar
 from .router import RouteResult, route, to_geojson
 
 __all__ = [
-    "Polar",
-    "WindField",
     "ConstantWind",
     "GRIBWindField",
+    "Polar",
     "RouteResult",
+    "WindField",
     "route",
     "to_geojson",
 ]
