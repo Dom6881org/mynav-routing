@@ -255,7 +255,7 @@ class LandMask:
         """Rasterise une cellule de cell_deg degrés à raster_deg : ray casting exact
         des points de la grille contre les anneaux de la cellule, mis en cache."""
         i, j = cell
-        n = max(1, int(round(self.cell_deg / self.raster_deg)))
+        n = max(1, round(self.cell_deg / self.raster_deg))
         lats = i * self.cell_deg + (np.arange(n) + 0.5) * self.raster_deg
         lons = j * self.cell_deg + (np.arange(n) + 0.5) * self.raster_deg
         gy, gx = np.meshgrid(lats, lons, indexing="ij")
