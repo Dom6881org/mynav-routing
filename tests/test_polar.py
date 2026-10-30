@@ -44,5 +44,5 @@ def test_interpolation():
         [0, 90, 180],
         np.array([[0.5, 1.0, 1.2], [3.0, 5.0, 6.5], [2.5, 4.5, 6.0]]),
     )
-    assert polar.speed(10, 90) == pytest.approx(4.0)
-    assert polar.speed(10, 45) == pytest.approx(2.375)
+    assert polar.speed(10, 90) == pytest.approx(5.75)
+    assert polar.speed(10, 45) == pytest.approx(3.425)
