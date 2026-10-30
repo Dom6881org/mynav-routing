@@ -1,3 +1,5 @@
+import io
+import json
 from pathlib import Path
 
 import pytest
@@ -28,6 +30,7 @@ def test_route_vent_arriere():
         dt=1800.0,
         bin_deg=0.05,
         arrival_nm=5.0,
+        land=None,
     )
     assert res.found
     # ~21 mn à ~4.7 kt -> 3 à 6 h
@@ -48,6 +51,7 @@ def test_route_horizon_depasse():
         wind=wind,
         horizon_h=2.0,
         dt=1800.0,
+        land=None,
     )
     assert not res.found
     assert res.min_dist_nm > 0.0
@@ -89,3 +93,50 @@ def test_landmask_geojson():
     land = LandMask.from_geojson(gj)
     assert land.is_land(42.6, 3.25)
     assert not land.is_land(42.6, 3.1)
+
+
+def test_landmask_charge_les_donnees_ouvertes(monkeypatch):
+    import mynav_routing.land as land_module
+
+    geojson = {
+        "type": "Polygon",
+        "coordinates": [[[3.2, 42.5], [3.3, 42.5], [3.3, 42.7], [3.2, 42.5]]],
+    }
+    calls = []
+
+    def open_url(url, timeout):
+        calls.append((url, timeout))
+        return io.BytesIO(json.dumps(geojson).encode())
+
+    land_module._load_open_land_geojson.cache_clear()
+    monkeypatch.setattr(land_module, "urlopen", open_url)
+    land = land_module.LandMask.from_open_data()
+    second_land = land_module.LandMask.from_open_data()
+    assert land.is_land(42.6, 3.25)
+    assert second_land.is_land(42.6, 3.25)
+    assert calls == [(land_module.OPEN_LAND_URL, 30)]
+    land_module._load_open_land_geojson.cache_clear()
+
+
+def test_route_charge_automatiquement_le_masque(monkeypatch):
+    from mynav_routing.land import LandMask
+
+    calls = []
+
+    def load(cls):
+        calls.append(cls)
+        return cls([])
+
+    monkeypatch.setattr(LandMask, "from_open_data", classmethod(load))
+    res = route(
+        start=(42.62, 3.02),
+        finish=(42.62, 3.5),
+        polar=Polar.from_file(str(EX)),
+        wind=ConstantWind(direction_from_deg=270, speed_kts=12),
+        horizon_h=24.0,
+        dt=1800.0,
+        bin_deg=0.05,
+        arrival_nm=5.0,
+    )
+    assert res.found
+    assert calls == [LandMask]

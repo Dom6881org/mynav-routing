@@ -1,7 +1,7 @@
 # mynav-routing
 
 Moteur de routage météo pour MyNavApp — méthode des isochrones, polaires .pol,
-champs de vent GRIB. 100 % open data, exécution 100 % offline (cible : Raspberry Pi à bord).
+champs de vent GRIB. 100 % open data (cible : Raspberry Pi à bord).
 
 Package Python autonome : le backend MyNavApp l'importe comme bibliothèque.
 Sens de la dépendance : MyNavApp -> mynav-routing, jamais l'inverse.
@@ -13,6 +13,7 @@ Sens de la dépendance : MyNavApp -> mynav-routing, jamais l'inverse.
 - Moteur d'isochrones vectorisé numpy (quelques secondes sur un Pi 4)
 - Champs de vent : ConstantWind (tests, dégradation offline) et GRIBWindField (extra "grib", expérimental)
 - Contraintes : TWS max (confort), rayon d'arrivée
+- Masque terrestre Natural Earth téléchargé automatiquement, puis calcul local
 - Export GeoJSON pour la carte Leaflet de MyNavApp
 
 ## Installation
@@ -37,7 +38,11 @@ Sens de la dépendance : MyNavApp -> mynav-routing, jamais l'inverse.
 - Départ : position courante NMEA (RMC/VTG) fournie par le backend
 - Polaire : examples/polaire-sugar.pol (à recalibrer avec les logs enregistrés par MyNavApp)
 - Vent : GRIB téléchargé à terre (GFS / ICON / AROME, open data) ou ConstantWind
+- Terres : les polygones Natural Earth sont téléchargés automatiquement au premier routage
 - Sortie : GeoJSON affiché sur la carte, recalcul au fil de la traversée
+
+Le calcul du masque est local. Pour désactiver explicitement la contrainte terrestre,
+passer `land=None` à `route()`.
 
 ## Feuille de route
 

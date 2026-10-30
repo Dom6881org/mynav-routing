@@ -15,7 +15,10 @@ from dataclasses import dataclass
 import numpy as np
 
 from .engine.isochrones import haversine_nm, move_nm
+from .land import LandMask
 from .polar import Polar
+
+_AUTO_LAND = object()
 
 
 @dataclass
@@ -40,7 +43,7 @@ def route(
     bin_deg=0.25,
     arrival_nm=5.0,
     tws_max=None,
-    land=None,
+    land=_AUTO_LAND,
 ):
     """Calcule la route la plus rapide de start vers finish.
 
@@ -50,8 +53,10 @@ def route(
     heading_step : pas des caps candidats (degrés) ;
     bin_deg : maille d'élagage (degrés) ; arrival_nm : rayon d'arrivée (mn) ;
     tws_max : contrainte de confort (kt), None = illimité ;
-    land : LandMask optionnel ; les tronçons qui touchent la terre sont écartés.
+    land : LandMask optionnel ; chargé depuis Natural Earth par défaut. None désactive le masque.
     """
+    if land is _AUTO_LAND:
+        land = LandMask.from_open_data()
     fronts = [
         {
             "lat": np.array([float(start[0])]),

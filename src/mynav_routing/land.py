@@ -5,9 +5,24 @@ Données attendues : polygones de terre (GeoJSON Polygon / MultiPolygon, coordon
 """
 from __future__ import annotations
 
+import json
+from functools import lru_cache
+from urllib.request import urlopen
+
 import numpy as np
 
 from .engine.isochrones import NM_PER_RADIAN
+
+OPEN_LAND_URL = (
+    "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/"
+    "geojson/ne_10m_land.geojson"
+)
+
+
+@lru_cache(maxsize=1)
+def _load_open_land_geojson(url):
+    with urlopen(url, timeout=30) as response:
+        return json.loads(response.read())
 
 
 class LandMask:
@@ -47,6 +62,11 @@ class LandMask:
 
         walk(data)
         return cls(rings, sample_nm=sample_nm)
+
+    @classmethod
+    def from_open_data(cls, sample_nm=0.25, url=OPEN_LAND_URL):
+        """Télécharge les terres Natural Earth une fois et les charge localement."""
+        return cls.from_geojson(_load_open_land_geojson(url), sample_nm=sample_nm)
 
     def is_land(self, lat, lon):
         """Vrai pour les points situés sur la terre (tableaux numpy acceptés)."""
