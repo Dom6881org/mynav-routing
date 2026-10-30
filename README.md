@@ -16,10 +16,27 @@ Sens de la dépendance : MyNavApp -> mynav-routing, jamais l'inverse.
 - Masque terrestre Natural Earth téléchargé automatiquement, puis calcul local
 - Export GeoJSON pour la carte Leaflet de MyNavApp
 
+## v0.3 : masque terre + bathymétrie GEBCO
+
+- Masque de terre Natural Earth (voir v0.1) accéléré : index spatial par cellule + raster,
+  routage avec masque ~x10 plus rapide (v0.3.2)
+- Bathymétrie GEBCO (grille 15 arc-secondes, NetCDF) : `DepthMask` évite la terre ET les
+  hauts-fonds — tout tronçon dont la profondeur passe sous `min_depth_m` (défaut 10 m) est
+  rejeté, via `route(..., bathy=DepthMask.from_open_data(), min_depth_m=10)`
+- Chargement : fichier NetCDF GEBCO (extra `bathy`) ou `.npz` léger (`elev`, `lats`, `lons`)
+  pour un extrait régional embarqué ; `MYNAV_ROUTING_BATHY_FILE` (fichier local prioritaire),
+  `MYNAV_ROUTING_BATHY_URL` (téléchargement mis en cache, repli hors ligne dans le même cache
+  que les terres). Sans donnée : `BathyDataError`. La grille globale GEBCO fait ~1 Go : à
+  bord, préférer un extrait régional. Hors couverture de la grille : aucune contrainte
+- Performance : interpolation bilinéaire vectorisée (O(1) par point) + index spatial
+  (min d'élévation par cellule) : au large, les tronçons ne sont pas échantillonnés ;
+  test de performance : `pytest -q tests/test_bathy_perf.py`
+
 ## Installation
 
     pip install -e .
     pip install -e '.[grib]'   # lecture GRIB (xarray + cfgrib + eccodes)
+    pip install -e '.[bathy]'  # lecture NetCDF GEBCO (xarray + netcdf4)
     pip install -e '.[dev]'    # pytest + ruff
 
 ## Exemple
@@ -42,15 +59,17 @@ Sens de la dépendance : MyNavApp -> mynav-routing, jamais l'inverse.
   puis mis en cache sur disque (~/.cache/mynav-routing, ou MYNAV_ROUTING_CACHE_DIR).
   Hors ligne, le cache est utilisé en repli ; MYNAV_ROUTING_LAND_FILE permet d'imposer
   un fichier GeoJSON local (ex. embarqué à bord). Sans aucune donnée : LandDataError.
+- Bathymétrie : `bathy=` est optionnel (None par défaut = pas de contrainte de profondeur) ;
+  passer un `DepthMask` (GEBCO) pour éviter terre et hauts-fonds, avec `min_depth_m` (m).
 - Sortie : GeoJSON affiché sur la carte, recalcul au fil de la traversée
 
 Le calcul du masque est local. Pour désactiver explicitement la contrainte terrestre,
-passer `land=None` à `route()`.
+passer `land=None` à `route()` ; la contrainte de profondeur se désactive avec `bathy=None`.
 
 ## Feuille de route
 
 - v0.2 : GRIBWindField stabilisé + tests avec GRIB réel (GFS 0.25°)
-- v0.3 : masque terre / bathymétrie GEBCO (éviter terre et hauts-fonds)
+- v0.3 : masque terre / bathymétrie GEBCO (éviter terre et hauts-fonds) — fait
 - v0.4 : courants de surface (Copernicus CMEMS / HYCOM) composés au SOG
 - v0.5 : endpoint FastAPI montable dans le backend MyNavApp (POST /api/routing)
 - v1.0 : calibration automatique de la polaire depuis les logs NMEA (feature record de MyNavApp)

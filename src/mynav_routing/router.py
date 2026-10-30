@@ -14,6 +14,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from .bathy import DepthMask
 from .engine.isochrones import haversine_nm, move_nm
 from .land import LandMask
 from .polar import Polar
@@ -44,6 +45,8 @@ def route(
     arrival_nm=5.0,
     tws_max=None,
     land=_AUTO_LAND,
+    bathy: DepthMask | None = None,
+    min_depth_m=None,
 ):
     """Calcule la route la plus rapide de start vers finish.
 
@@ -54,9 +57,14 @@ def route(
     bin_deg : maille d'élagage (degrés) ; arrival_nm : rayon d'arrivée (mn) ;
     tws_max : contrainte de confort (kt), None = illimité ;
     land : LandMask optionnel ; chargé depuis Natural Earth par défaut. None désactive le masque.
+    bathy : DepthMask optionnel (GEBCO) pour éviter terre et hauts-fonds ;
+        None = pas de contrainte de profondeur.
+    min_depth_m : profondeur minimale acceptée (m) ; défaut = bathy.default_min_depth_m.
     """
     if land is _AUTO_LAND:
         land = LandMask.from_open_data()
+    if bathy is not None and min_depth_m is None:
+        min_depth_m = bathy.default_min_depth_m
     fronts = [
         {
             "lat": np.array([float(start[0])]),
@@ -97,8 +105,13 @@ def route(
             parent[keep],
         )
         lat2, lon2 = move_nm(lat_r, lon_r, hdg, bs * dt / 3600.0)
+        ok = None
         if land is not None:
             ok = ~land.crosses_land(lat_r, lon_r, lat2, lon2)
+        if bathy is not None:
+            shallow = bathy.crosses_shallow(lat_r, lon_r, lat2, lon2, min_depth_m)
+            ok = ~shallow if ok is None else (ok & ~shallow)
+        if ok is not None:
             lat2, lon2, hdg, bs, parent = lat2[ok], lon2[ok], hdg[ok], bs[ok], parent[ok]
             if len(lat2) == 0:
                 break
@@ -114,8 +127,12 @@ def route(
         )
         d = haversine_nm(lat2, lon2, float(finish[0]), float(finish[1]))
         reached = d <= np.maximum(arrival_nm, bs * dt / 3600.0)
-        if land is not None and reached.any():
+        if reached.any() and land is not None:
             reached &= ~land.crosses_land(lat2, lon2, float(finish[0]), float(finish[1]))
+        if reached.any() and bathy is not None:
+            reached &= ~bathy.crosses_shallow(
+                lat2, lon2, float(finish[0]), float(finish[1]), min_depth_m
+            )
         fronts.append(
             {"lat": lat2, "lon": lon2, "hdg": hdg, "bs": bs, "parent": parent}
         )
