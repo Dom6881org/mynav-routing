@@ -28,9 +28,11 @@ class ConstantWind(WindField):
 
 
 class GRIBWindField(WindField):
-    """Champ GRIB (u10/v10, m/s) lu via xarray + cfgrib (extra 'grib').
+    """Champ GRIB (u10/v10 en m/s) lu via xarray + cfgrib (extra 'grib').
 
     Expérimental v1 : pas de temps le plus proche, voisin spatial le plus proche.
+    sample() convertit les composantes m/s en nœuds (x 1.94384), comme
+    ConstantWind : le moteur de routage travaille en nœuds.
     """
 
     def __init__(self, ds):
@@ -56,6 +58,6 @@ class GRIBWindField(WindField):
             longitude=xr.DataArray(lon, dims="pts"),
             method="nearest",
         )
-        u = np.atleast_1d(pt["u10"].values) / 1.94384
-        v = np.atleast_1d(pt["v10"].values) / 1.94384
+        u = np.atleast_1d(pt["u10"].values) * 1.94384
+        v = np.atleast_1d(pt["v10"].values) * 1.94384
         return u, v
