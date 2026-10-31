@@ -35,3 +35,30 @@ jobs:
           fi
         env:
           GH_TOKEN: ${{ github.token }}
+
+  cleanup-squash:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        branch:
+          - feat/bathy-gebco-v03
+          - chore/cleanup-branches
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Delete squash-merged branch (PR mergee avec tip identique)
+        run: |
+          BR="${{ matrix.branch }}"
+          if ! git rev-parse --verify "origin/$BR" >/dev/null 2>&1; then echo "$BR absente — ok."; exit 0; fi
+          TIP=$(git rev-parse "origin/$BR")
+          MERGED=$(gh pr list --state merged --head "$BR" --json headRefOid --jq '.[0].headRefOid')
+          if [ "$MERGED" = "$TIP" ]; then
+            echo "$BR : PR mergee (squash) avec ce tip — suppression."
+            git push origin --delete "$BR" || echo "deja supprimee"
+          else
+            echo "$BR : aucune PR mergee avec ce tip — conservee."
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
