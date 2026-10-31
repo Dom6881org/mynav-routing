@@ -1,0 +1,37 @@
+name: Cleanup merged branches
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/cleanup-branches.yml
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        branch: ["copilot/add-land-definition-acquisition","copilot/fix-failing-github-actions-job","copilot/fix-failing-github-actions-job-again","feat/bathy-gebco-v03","fix/grib-wind-units"]
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Delete branch if fully merged into main
+        run: |
+          git fetch origin main
+          if git rev-parse --verify origin/${{ matrix.branch }} >/dev/null 2>&1; then
+            if git merge-base --is-ancestor origin/${{ matrix.branch }} origin/main; then
+              echo "${{ matrix.branch }} est mergee dans main — suppression."
+              git push origin --delete ${{ matrix.branch }} || echo "deja supprimee"
+            else
+              echo "${{ matrix.branch }} contient des commits non merges — conservee."
+            fi
+          else
+            echo "${{ matrix.branch }} inexistante — ok."
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
