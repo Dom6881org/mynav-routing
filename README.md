@@ -75,6 +75,56 @@ passer `land=None` à `route()` ; la contrainte de profondeur se désactive avec
 - v0.5 : endpoint FastAPI montable dans le backend MyNavApp (POST /api/routing)
 - v1.0 : calibration automatique de la polaire depuis les logs NMEA (feature record de MyNavApp)
 
+## Diagnostic v0.3 et améliorations prévues (v0.6 : qualité de route)
+
+Symptômes observés dans MyNavApp : la trace passe sur la terre et présente des
+zigzags serrés. Causes identifiées dans le code actuel :
+
+### Traces sur terre
+
+1. **MyNavApp épingle un commit antérieur au masque terre** : `requirements-routing.txt`
+   pointe sur `9e85fe7` (pré-v0.3). La version consommée ne connaît ni `LandMask` ni
+   `DepthMask`. Action : réépingler sur le dernier main (ou tag) et vérifier que le
+   backend passe `land=` par défaut (pas `land=None`).
+2. **Natural Earth 10m est trop grossier près des côtes** : presqu'îles fines, îlots,
+   ports et digues sont absents du 1:10 000 000. Améliorations : GSHHG full/high
+   resolution ou polygones OSM (fichier local imposé via `MYNAV_ROUTING_LAND_FILE`,
+   extrait régional embarqué à bord), et marge de sécurité par dilatation du masque
+   (~0,5 MN) plutôt qu'un simple test d'intersection.
+3. **Tolérance du raster** (`raster_deg=0.01`, ~0,3 MN près des côtes) et pas
+   d'échantillonnage `sample_nm=0.25` : un tronçon qui longe la côte peut être
+   accepté à cheval sur le trait de côte. Prévoir `raster_deg=None` (ray casting
+   exact) dans un rayon côtier, et densifier `sample_nm` près des terres.
+
+### Zigzag
+
+1. **Élagage arbitraire par cellule lat/lon** : `np.unique(key, return_index=True)`
+   garde le premier point rencontré dans chaque bin de 0,25°, pas le meilleur temps.
+   Les implémentations de référence (qtVlm, Expedition, MaxSea) élaguent par **secteur
+   de relèvement** depuis le départ (ou le long de l'orthodromie) en conservant le
+   point de temps minimal par secteur — et stockent le temps d'arrivée par point.
+2. **Caps quantifiés à 5°** : l'optimum oscille entre deux caps adjacents selon le
+   pas de temps du GRIB → dents de scie. Améliorations : raffinement local (±5°
+   autour du cap de l'étape précédente), ou caps exacts vers les bins voisins.
+3. **Pas de post-traitement de la trace** : la sortie brute de l'isochrone est une
+   chaîne de segments de `bs*dt` (1–3 MN à dt=30 min). Ajouter : simplification
+   Douglas-Peucker **sous contraintes** (terre + bathymétrie re-vérifiées après
+   simplification), puis resampling en segments de cap constant (loomings).
+4. **Fin de parcours brutale** : le dernier tronçon vers l'arrivée est ajouté sans
+   lissage ; prévoir un raccord orthodromique vérifié.
+
+### Alternatives algorithmiques (écartées ou complémentaires)
+
+- **Isochrones** (actuel) : standard du routage voile (qtVlm, Expedition, MaxSea) —
+  à conserver, avec les raffinements ci-dessus.
+- **A*/Dijkstra sur graphe en temps** : robuste, mais peine avec les caps
+  dépendant du vent et coûteux en mémoire sur zone large.
+- **Fast Marching anisotrope** (ordered upwind) : élégant sur grille continue,
+  mais la contrainte de cap par rapport au vent (pas de remontée du vent au près
+  sous le TWA cible) est difficile à imposer proprement.
+- Recommandation : rester sur les isochrones, investir dans l'élagage par secteur,
+  le meilleur-temps par cellule et le post-traitement de trace.
+
 ## Sources open data
 
 - Vent : GFS (NOAA), ICON (DWD), ARPEGE/AROME (Météo-France), ECMWF Open Data
