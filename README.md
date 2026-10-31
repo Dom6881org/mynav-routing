@@ -70,6 +70,7 @@ passer `land=None` à `route()` ; la contrainte de profondeur se désactive avec
 
 - v0.2 : GRIBWindField stabilisé + tests avec GRIB réel (GFS 0.25°)
 - v0.3 : masque terre / bathymétrie GEBCO (éviter terre et hauts-fonds) — fait
+- v0.6 : **qualité de route** — anti-zigzag et côtes (voir "Diagnostic et améliorations" ci-dessous)
 - v0.4 : courants de surface (Copernicus CMEMS / HYCOM) composés au SOG
 - v0.5 : endpoint FastAPI montable dans le backend MyNavApp (POST /api/routing)
 - v1.0 : calibration automatique de la polaire depuis les logs NMEA (feature record de MyNavApp)
