@@ -2,6 +2,7 @@ import io
 import json
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from mynav_routing import ConstantWind, Polar, route, to_geojson
@@ -142,3 +143,40 @@ def test_route_charge_automatiquement_le_masque(monkeypatch):
     )
     assert res.found
     assert calls == [LandMask]
+
+
+def test_corridor_mask_margin():
+    from mynav_routing.router import corridor_mask
+
+    start, finish = (42.0, 3.0), (42.0, 6.0)
+    lat = [42.0, 42.0, 42.0, 44.0, 42.0]
+    lon = [4.5, 3.0, 6.0, 4.5, 1.0]
+    inside = corridor_mask(lat, lon, start, finish, 0.2)
+    assert inside.tolist() == [True, True, True, False, False]
+    assert corridor_mask(lat, lon, start, finish, 5.0).all()
+
+
+def test_cell_keys_int32_and_distinct():
+    from mynav_routing.router import cell_keys
+
+    k = cell_keys([42.001, 42.002, 42.5], [3.001, 3.002, 3.0], 0.05)
+    assert k.dtype == np.int32
+    assert k[0] == k[1] != k[2]
+
+
+def test_route_corridor_keeps_route():
+    polar = Polar.from_file(str(EX))
+    wind = ConstantWind(direction_from_deg=270, speed_kts=12)
+    kw = {
+        "start": (42.62, 3.02),
+        "finish": (42.62, 3.5),
+        "polar": polar,
+        "wind": wind,
+        "horizon_h": 24.0,
+        "bin_deg": 0.05,
+        "land": None,
+    }
+    a = route(**kw)
+    b = route(corridor_margin=None, **kw)
+    assert a.found and b.found
+    assert a.eta_s == pytest.approx(b.eta_s, rel=0.1)

@@ -49,6 +49,7 @@ def route(
     bathy: DepthMask | None = None,
     min_depth_m=None,
     phase_timings=None,
+    corridor_margin=0.2,
 ):
     """Calcule la route la plus rapide de start vers finish.
 
@@ -64,6 +65,10 @@ def route(
     min_depth_m : profondeur minimale acceptée (m) ; défaut = bathy.default_min_depth_m.
     phase_timings : dict optionnel, cumule les temps sample_wind_s, land_mask_s et
         pruning_s, ainsi que le nombre de candidats explorés.
+    corridor_margin : marge relative du corridor start-finish (défaut 0.2 = +20 %) ;
+        les candidats hors de l'ellipse de foyers start/finish, dont le grand axe
+        vaut (1 + marge) x distance directe, sont élagués avant tout autre test.
+        None désactive l'élagage par corridor.
     """
     if phase_timings is not None:
         phase_timings.update(
@@ -76,6 +81,8 @@ def route(
         land = LandMask.from_open_data()
     if bathy is not None and min_depth_m is None:
         min_depth_m = bathy.default_min_depth_m
+    flat, flon = float(finish[0]), float(finish[1])
+    direct_nm = float(haversine_nm(float(start[0]), float(start[1]), flat, flon))
     fronts = [
         {
             "lat": np.array([float(start[0])]),
@@ -120,6 +127,19 @@ def route(
             parent[keep],
         )
         lat2, lon2 = move_nm(lat_r, lon_r, hdg, bs * dt / 3600.0)
+        if corridor_margin is not None:
+            in_corridor = corridor_mask(lat2, lon2, start, finish, corridor_margin, direct_nm)
+            if not in_corridor.all():
+                lat2, lon2, hdg, bs, parent = (
+                    lat2[in_corridor],
+                    lon2[in_corridor],
+                    hdg[in_corridor],
+                    bs[in_corridor],
+                    parent[in_corridor],
+                )
+                lat_r, lon_r = lat_r[in_corridor], lon_r[in_corridor]
+                if len(lat2) == 0:
+                    break
         ok = None
         if land is not None:
             phase_start = perf_counter() if phase_timings is not None else None
@@ -134,20 +154,28 @@ def route(
             lat2, lon2, hdg, bs, parent = lat2[ok], lon2[ok], hdg[ok], bs[ok], parent[ok]
             if len(lat2) == 0:
                 break
-        # Élagage : un seul point par cellule de bin_deg degrés
+        # Élagage : un seul point par cellule de bin_deg degrés, celui de temps
+        # d'arrivée minimal (à temps égal, le premier rencontré : tri stable)
         phase_start = perf_counter() if phase_timings is not None else None
-        key = np.round(lat2 / bin_deg) * 4096.0 + np.round(lon2 / bin_deg)
-        _, idx = np.unique(key, return_index=True)
-        lat2, lon2, hdg, bs, parent = (
+        d = haversine_nm(lat2, lon2, flat, flon)
+        t = np.full(len(lat2), (k + 1) * dt)
+        key = cell_keys(lat2, lon2, bin_deg)
+        order = np.lexsort((t, key))
+        ks = key[order]
+        first = np.empty(len(ks), dtype=bool)
+        first[0] = True
+        first[1:] = ks[1:] != ks[:-1]
+        idx = order[first]
+        lat2, lon2, hdg, bs, parent, d = (
             lat2[idx],
             lon2[idx],
             hdg[idx],
             bs[idx],
             parent[idx],
+            d[idx],
         )
         if phase_timings is not None:
             phase_timings["pruning_s"] += perf_counter() - phase_start
-        d = haversine_nm(lat2, lon2, float(finish[0]), float(finish[1]))
         reached = d <= np.maximum(arrival_nm, bs * dt / 3600.0)
         if reached.any() and land is not None:
             phase_start = perf_counter() if phase_timings is not None else None
@@ -203,6 +231,29 @@ def route(
         eta_s=0.0,
         min_dist_nm=best_d if best_d is not None else float("inf"),
     )
+
+
+def corridor_mask(lat, lon, start, finish, margin, direct_nm=None):
+    """Vrai pour les points dans l'ellipse de foyers start/finish dont le grand axe
+    vaut (1 + margin) x distance directe (d(p, start) + d(p, finish) <= grand axe)."""
+    if direct_nm is None:
+        direct_nm = float(haversine_nm(start[0], start[1], finish[0], finish[1]))
+    lat = np.asarray(lat, dtype=float)
+    lon = np.asarray(lon, dtype=float)
+    total = haversine_nm(lat, lon, float(start[0]), float(start[1])) + haversine_nm(
+        lat, lon, float(finish[0]), float(finish[1])
+    )
+    return total <= direct_nm * (1.0 + margin) + 1e-9
+
+
+def cell_keys(lat, lon, bin_deg):
+    """Clé entière de cellule de bin_deg degrés (int32 si elle y tient, sinon int64)."""
+    n_lon = int(np.ceil(360.0 / bin_deg)) + 2
+    n_lat = int(np.ceil(180.0 / bin_deg)) + 2
+    dtype = np.int32 if n_lat * n_lon < np.iinfo(np.int32).max else np.int64
+    ilat = np.floor((np.asarray(lat) + 90.0) / bin_deg).astype(dtype)
+    ilon = np.floor((np.asarray(lon) + 180.0) / bin_deg).astype(dtype)
+    return ilat * dtype(n_lon) + ilon
 
 
 def _traceback(fronts, i):
