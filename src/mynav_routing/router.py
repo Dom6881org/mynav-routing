@@ -11,6 +11,7 @@ Contrat MyNavApp : départ = position NMEA courante, vent = GRIB téléchargé
 from __future__ import annotations
 
 from dataclasses import dataclass
+from time import perf_counter
 
 import numpy as np
 
@@ -47,6 +48,7 @@ def route(
     land=_AUTO_LAND,
     bathy: DepthMask | None = None,
     min_depth_m=None,
+    phase_timings=None,
 ):
     """Calcule la route la plus rapide de start vers finish.
 
@@ -60,7 +62,16 @@ def route(
     bathy : DepthMask optionnel (GEBCO) pour éviter terre et hauts-fonds ;
         None = pas de contrainte de profondeur.
     min_depth_m : profondeur minimale acceptée (m) ; défaut = bathy.default_min_depth_m.
+    phase_timings : dict optionnel, cumule les temps sample_wind_s, land_mask_s et
+        pruning_s, ainsi que le nombre de candidats explorés.
     """
+    if phase_timings is not None:
+        phase_timings.update(
+            sample_wind_s=0.0,
+            land_mask_s=0.0,
+            pruning_s=0.0,
+            explored_nodes=0,
+        )
     if land is _AUTO_LAND:
         land = LandMask.from_open_data()
     if bathy is not None and min_depth_m is None:
@@ -85,7 +96,11 @@ def route(
         lon_r = np.repeat(prev["lon"], len(headings))
         hdg = np.tile(headings, n)
         parent = np.repeat(np.arange(n), len(headings))
+        phase_start = perf_counter() if phase_timings is not None else None
         u, v = wind.sample(lat_r, lon_r, k * dt)
+        if phase_timings is not None:
+            phase_timings["sample_wind_s"] += perf_counter() - phase_start
+            phase_timings["explored_nodes"] += len(lat_r)
         u = np.asarray(u)
         v = np.asarray(v)
         wind_from = np.degrees(np.arctan2(-u, -v)) % 360.0
@@ -107,7 +122,11 @@ def route(
         lat2, lon2 = move_nm(lat_r, lon_r, hdg, bs * dt / 3600.0)
         ok = None
         if land is not None:
-            ok = ~land.crosses_land(lat_r, lon_r, lat2, lon2)
+            phase_start = perf_counter() if phase_timings is not None else None
+            crosses_land = land.crosses_land(lat_r, lon_r, lat2, lon2)
+            if phase_timings is not None:
+                phase_timings["land_mask_s"] += perf_counter() - phase_start
+            ok = ~crosses_land
         if bathy is not None:
             shallow = bathy.crosses_shallow(lat_r, lon_r, lat2, lon2, min_depth_m)
             ok = ~shallow if ok is None else (ok & ~shallow)
@@ -116,6 +135,7 @@ def route(
             if len(lat2) == 0:
                 break
         # Élagage : un seul point par cellule de bin_deg degrés
+        phase_start = perf_counter() if phase_timings is not None else None
         key = np.round(lat2 / bin_deg) * 4096.0 + np.round(lon2 / bin_deg)
         _, idx = np.unique(key, return_index=True)
         lat2, lon2, hdg, bs, parent = (
@@ -125,10 +145,15 @@ def route(
             bs[idx],
             parent[idx],
         )
+        if phase_timings is not None:
+            phase_timings["pruning_s"] += perf_counter() - phase_start
         d = haversine_nm(lat2, lon2, float(finish[0]), float(finish[1]))
         reached = d <= np.maximum(arrival_nm, bs * dt / 3600.0)
         if reached.any() and land is not None:
+            phase_start = perf_counter() if phase_timings is not None else None
             reached &= ~land.crosses_land(lat2, lon2, float(finish[0]), float(finish[1]))
+            if phase_timings is not None:
+                phase_timings["land_mask_s"] += perf_counter() - phase_start
         if reached.any() and bathy is not None:
             reached &= ~bathy.crosses_shallow(
                 lat2, lon2, float(finish[0]), float(finish[1]), min_depth_m

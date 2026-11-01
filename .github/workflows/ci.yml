@@ -4,6 +4,13 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      run_routing_benchmark:
+        description: Run the Saint-Cyprien → Ajaccio benchmark
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   test:
@@ -19,3 +26,16 @@ jobs:
         run: ruff check src tests
       - name: Tests
         run: pytest -q
+
+  routing-benchmark:
+    if: github.event_name == 'workflow_dispatch' && inputs.run_routing_benchmark
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: pip install -e '.[dev]'
+      - name: Benchmark Saint-Cyprien → Ajaccio
+        run: pytest -o addopts= -m slow tests/test_perf_stcyprien.py -s
