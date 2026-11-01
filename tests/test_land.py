@@ -185,6 +185,44 @@ def test_crosses_land_forme_et_echantillonnage():
     assert land.crosses_land(5.0, 9.9, 5.0, 10.1)
 
 
+def test_crosses_land_cellules_et_echantillonnage_par_segment():
+    rng = np.random.default_rng(26)
+    rings = []
+    for k in range(300):
+        lat = 30.0 + (k % 20) * 0.5
+        lon = -5.0 + (k // 20) * 0.5
+        rings.append([(lat, lon), (lat, lon + 0.12), (lat + 0.12, lon + 0.12), (lat + 0.12, lon)])
+    land = LandMask(rings, sample_nm=0.25, cell_deg=0.5, raster_deg=None)
+
+    lat1 = 30.0 + rng.uniform(0, 10, 500)
+    lon1 = -5.0 + rng.uniform(0, 7.5, 500)
+    lat2 = lat1 + rng.uniform(-0.2, 0.2, 500)
+    lon2 = lon1 + rng.uniform(-0.8, 0.8, 500)
+    lat1[:300] = 30.06 + (np.arange(300) % 20) * 0.5
+    lon1[:300] = -5.0 + (np.arange(300) // 20) * 0.5 - 0.2
+    lat2[:300] = lat1[:300]
+    lon2[:300] = lon1[:300] + rng.uniform(0.3, 0.8, 300)
+
+    got = land.crosses_land(lat1, lon1, lat2, lon2)
+    dlon = (lon2 - lon1 + 180.0) % 360.0 - 180.0
+    dist = np.hypot(
+        lat2 - lat1,
+        dlon * np.cos(np.radians((lat1 + lat2) / 2.0)),
+    )
+    sample_counts = np.maximum(
+        1, np.ceil(dist * land_module.NM_PER_RADIAN * np.pi / 180.0 / land.sample_nm).astype(int)
+    )
+    expected = np.zeros(lat1.shape, dtype=bool)
+    for n in np.unique(sample_counts):
+        group = np.flatnonzero(sample_counts == n)
+        fs = (np.arange(1, n + 1, dtype=float) / n)[:, None]
+        points_lat = (lat1[group] + (lat2[group] - lat1[group]) * fs).ravel()
+        points_lon = (lon1[group] + dlon[group] * fs).ravel()
+        expected[group] = land.is_land(points_lat, points_lon).reshape(n, group.size).any(axis=0)
+
+    np.testing.assert_array_equal(got, expected)
+
+
 def test_raster_fidèle_gros_anneau():
     # cercle de 3600 sommets, rayon 3° centré en (42, 3)
     t = np.linspace(0, 2 * np.pi, 3601)
