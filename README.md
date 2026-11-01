@@ -134,3 +134,32 @@ zigzags serrés. Causes identifiées dans le code actuel :
 ## Tests
 
     pytest -q
+
+## Benchmark Saint-Cyprien → Ajaccio
+
+Le benchmark déterministe utilise les coordonnées fixes de Saint-Cyprien
+`(42.62, 3.03)` et Ajaccio `(41.919, 8.738)` (environ 257 MN orthodromiques),
+la polaire d'exemple, un vent constant et un masque terrestre grossier intégré au
+test. Il ne télécharge ni GRIB, ni données de terre ou bathymétrie ; cette dernière
+reste optionnelle. Il est marqué `slow` et exclu de `pytest -q` pour préserver le
+CI rapide.
+
+Exécution locale :
+
+    pytest -o addopts= -m slow tests/test_perf_stcyprien.py -s
+
+Le benchmark affiche une ligne `BENCH_STCYPRIEN_AJACCIO` avec le temps total,
+les nœuds explorés et les temps de sampling du vent, de masque terrestre et
+d'élagage. Le budget bloquant est de 60 s sur le runner CI x86. Pour le suivi sur
+Raspberry Pi 4, utiliser provisoirement un ratio indicatif de 3× (180 s), non
+bloquant et à confirmer par mesure sur le matériel. Dans Actions, le job de
+benchmark est lancé manuellement via **Run workflow** avec
+`run_routing_benchmark` activé ; il ne rallonge pas les runs CI ordinaires.
+
+Note : l'estimation d'environ 190 MN dans l'issue ne correspond pas à ces ports :
+leur distance orthodromique calculée avec le moteur est d'environ 257 MN.
+
+Après chaque PR de performance, reporter dans le commentaire de référence de
+[l'issue #14](https://github.com/Dom6881org/mynav-routing/issues/14) les lignes
+de sortie avant/après, avec le commit testé et l'environnement. Les optimisations
+doivent comparer les mêmes paramètres et runner.
