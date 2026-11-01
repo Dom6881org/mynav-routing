@@ -284,33 +284,153 @@ class LandMask:
         seg_lo0 = np.minimum(lo1, lo1 + dlon)
         seg_lo1 = np.maximum(lo1, lo1 + dlon)
         near = np.zeros(la1.shape, dtype=bool)
-        # anneaux candidats : cellules de la grille couvrant le rectangle englobant
-        # de tous les tronçons (un anneau qui coupe un tronçon est forcément
-        # enregistré dans une de ces cellules)
-        i_min = int(np.floor(seg_la0.min() / self.cell_deg))
-        i_max = int(np.floor(seg_la1.max() / self.cell_deg))
-        j_min = int(np.floor(seg_lo0.min() / self.cell_deg))
-        j_max = int(np.floor(seg_lo1.max() / self.cell_deg))
-        cand = {}
-        for i in range(i_min, i_max + 1):
-            for j in range(j_min, j_max + 1):
-                for idx in self._grid.get((i, j), ()):
-                    cand[idx] = True
-        for idx in cand:
-            _ring, (ra0, ra1, ro0, ro1) = self._rings[idx]
-            near |= (seg_la1 >= ra0) & (seg_la0 <= ra1) & (seg_lo1 >= ro0) & (seg_lo0 <= ro1)
+        i0 = np.floor(seg_la0 / self.cell_deg).astype(np.int64)
+        i1 = np.floor(seg_la1 / self.cell_deg).astype(np.int64)
+        j0 = np.floor(seg_lo0 / self.cell_deg).astype(np.int64)
+        j1 = np.floor(seg_lo1 / self.cell_deg).astype(np.int64)
+        span_i = i1 - i0 + 1
+        span_j = j1 - j0 + 1
+        single_cell = (span_i == 1) & (span_j == 1)
+        single_segments = np.flatnonzero(single_cell)
+        cell_i_parts = [i0[single_segments]]
+        cell_j_parts = [j0[single_segments]]
+        segment_parts = [single_segments]
+        multi_segments = np.flatnonzero(~single_cell)
+        if multi_segments.size:
+            multi_span_i = span_i[multi_segments]
+            multi_span_j = span_j[multi_segments]
+            span_i_min = int(multi_span_i.min())
+            span_j_min = int(multi_span_j.min())
+            span_j_width = int(multi_span_j.max()) - span_j_min + 1
+            span_keys = (multi_span_i - span_i_min) * span_j_width + (multi_span_j - span_j_min)
+            span_groups = np.unique(span_keys)
+            if span_groups.size * multi_segments.size <= 5_000_000:
+                segment_groups = (multi_segments[span_keys == group] for group in span_groups)
+                span_values = (
+                    (int(group // span_j_width + span_i_min), int(group % span_j_width + span_j_min))
+                    for group in span_groups
+                )
+            else:
+                group_ids = np.unique(span_keys, return_inverse=True)[1]
+                group_order = np.argsort(group_ids)
+                group_starts = np.r_[0, np.flatnonzero(np.diff(group_ids[group_order])) + 1]
+                group_ends = np.r_[group_starts[1:], group_order.size]
+                segment_groups = (
+                    multi_segments[group_order[start:end]]
+                    for start, end in zip(group_starts, group_ends)
+                )
+                span_values = (
+                    (int(group // span_j_width + span_i_min), int(group % span_j_width + span_j_min))
+                    for group in span_groups
+                )
+            for (n_i, n_j), segments_in_group in zip(span_values, segment_groups):
+                offsets_i, offsets_j = np.meshgrid(
+                    np.arange(n_i), np.arange(n_j), indexing="ij"
+                )
+                count = n_i * n_j
+                cell_i_parts.append(
+                    np.repeat(i0[segments_in_group], count)
+                    + np.tile(offsets_i.ravel(), len(segments_in_group))
+                )
+                cell_j_parts.append(
+                    np.repeat(j0[segments_in_group], count)
+                    + np.tile(offsets_j.ravel(), len(segments_in_group))
+                )
+                segment_parts.append(np.repeat(segments_in_group, count))
+        cell_i = np.concatenate(cell_i_parts)
+        cell_j = np.concatenate(cell_j_parts)
+        segments = np.concatenate(segment_parts)
+
+        # Retire les cellules de la bbox qu'un segment diagonal ne traverse pas.
+        multi_cell = (span_i[segments] > 1) | (span_j[segments] > 1)
+        if multi_cell.any():
+            selected = np.flatnonzero(multi_cell)
+            cell_la0 = cell_i[selected] * self.cell_deg
+            cell_la1 = cell_la0 + self.cell_deg
+            cell_lo0 = cell_j[selected] * self.cell_deg
+            cell_lo1 = cell_lo0 + self.cell_deg
+            t_min = np.zeros(selected.size)
+            t_max = np.ones(selected.size)
+            intersects = np.ones(selected.size, dtype=bool)
+            for start, delta, lower, upper in (
+                (
+                    la1[segments[selected]],
+                    la2[segments[selected]] - la1[segments[selected]],
+                    cell_la0,
+                    cell_la1,
+                ),
+                (
+                    lo1[segments[selected]],
+                    (lo1 + dlon)[segments[selected]] - lo1[segments[selected]],
+                    cell_lo0,
+                    cell_lo1,
+                ),
+            ):
+                stationary = delta == 0.0
+                intersects &= ~stationary | ((start >= lower) & (start <= upper))
+                with np.errstate(divide="ignore", invalid="ignore"):
+                    t0 = (lower - start) / delta
+                    t1 = (upper - start) / delta
+                t_min = np.maximum(t_min, np.where(stationary, 0.0, np.minimum(t0, t1)))
+                t_max = np.minimum(t_max, np.where(stationary, 1.0, np.maximum(t0, t1)))
+            intersects &= t_min <= t_max
+            keep = np.ones(segments.size, dtype=bool)
+            keep[selected] = intersects
+            cell_i = cell_i[keep]
+            cell_j = cell_j[keep]
+            segments = segments[keep]
+
+        min_i, min_j = int(cell_i.min()), int(cell_j.min())
+        n_j = int(cell_j.max()) - min_j + 1
+        n_i = int(cell_i.max()) - min_i + 1
+        if n_i * n_j < np.iinfo(np.int64).max:
+            cell_keys = (cell_i - min_i) * n_j + (cell_j - min_j)
+            cells = np.unique(cell_keys)
+            cell_coords = ((cells // n_j) + min_i, (cells % n_j) + min_j)
+            if cells.size * cell_keys.size <= 5_000_000:
+                cell_groups = (np.flatnonzero(cell_keys == cell) for cell in cells)
+            else:
+                _, cell_ids = np.unique(cell_keys, return_inverse=True)
+                cell_order = np.argsort(cell_ids)
+                cell_starts = np.r_[0, np.flatnonzero(np.diff(cell_ids[cell_order])) + 1]
+                cell_ends = np.r_[cell_starts[1:], cell_order.size]
+                cell_groups = (
+                    cell_order[start:end] for start, end in zip(cell_starts, cell_ends)
+                )
+        else:
+            cells = np.unique(np.rec.fromarrays((cell_i, cell_j), names="i,j"))
+            cell_keys = np.rec.fromarrays((cell_i, cell_j), names="i,j")
+            cell_coords = (cells["i"], cells["j"])
+            cell_groups = (np.flatnonzero(cell_keys == cell) for cell in cells)
+        for i, j, group in zip(*cell_coords, cell_groups):
+            cell_segments = segments[group]
+            for idx in self._grid.get((int(i), int(j)), ()):
+                pending = ~near[cell_segments]
+                if not pending.any():
+                    break
+                candidates = cell_segments[pending]
+                _ring, (ra0, ra1, ro0, ro1) = self._rings[idx]
+                matches = (
+                    (seg_la1[candidates] >= ra0)
+                    & (seg_la0[candidates] <= ra1)
+                    & (seg_lo1[candidates] >= ro0)
+                    & (seg_lo0[candidates] <= ro1)
+                )
+                near[candidates[matches]] = True
         hit = np.zeros(la1.shape, dtype=bool)
         sel = np.flatnonzero(near)
         if sel.size:
             dla = la2[sel] - la1[sel]
             dlo = dlon[sel]
             dist = np.hypot(dla, dlo * np.cos(np.radians((la1[sel] + la2[sel]) / 2.0)))
-            dist_nm = float(dist.max()) * NM_PER_RADIAN * np.pi / 180.0
-            n = max(1, int(np.ceil(dist_nm / self.sample_nm)))
-            fs = (np.arange(1, n + 1, dtype=float) / n)[:, None]  # (n, 1)
-            plat = (la1[sel] + dla * fs).ravel()  # (n, S) aplati
-            plon = (lo1[sel] + dlo * fs).ravel()
-            hit[sel] = self.is_land(plat, plon).reshape(n, sel.size).any(axis=0)
+            dist_nm = dist * NM_PER_RADIAN * np.pi / 180.0
+            sample_counts = np.maximum(1, np.ceil(dist_nm / self.sample_nm).astype(np.int64))
+            for n in np.unique(sample_counts):
+                group = sel[sample_counts == n]
+                fs = (np.arange(1, n + 1, dtype=float) / n)[:, None]
+                plat = (la1[group] + (la2[group] - la1[group]) * fs).ravel()
+                plon = (lo1[group] + dlon[group] * fs).ravel()
+                hit[group] = self.is_land(plat, plon).reshape(n, group.size).any(axis=0)
         return hit.reshape(shape)
 
 
