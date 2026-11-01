@@ -62,3 +62,30 @@ jobs:
           fi
         env:
           GH_TOKEN: ${{ github.token }}
+
+  # Branches obsolètes, suppression explicite autorisée par Dom (02/11/2026) :
+  # merges releases v0.2.0-v0.3.3 (rebase, tips sans PR mergee identique) et
+  # branches de cleanup squash-mergees ; cette branche s'auto-nettoie.
+  cleanup-stale:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        branch:
+          - feat/bathy-gebco-v03
+          - chore/cleanup-branches
+          - chore/cleanup-squash
+          - chore/cleanup-purge
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v7
+      - name: Delete stale branch
+        run: |
+          BR="${{ matrix.branch }}"
+          if git ls-remote --exit-code --heads origin "$BR" >/dev/null 2>&1; then
+            echo "$BR : suppression (branche obsolète, autorisée par Dom)."
+            git push origin --delete "$BR" || echo "deja supprimee"
+          else
+            echo "$BR absente — ok."
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
