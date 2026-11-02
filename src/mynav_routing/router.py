@@ -32,6 +32,7 @@ class RouteResult:
     headings_deg: list    # cap suivi sur chaque tronçon
     eta_s: float = 0.0
     min_dist_nm: float = float("inf")
+    corridor_margin: float | None = None  # marge corridor effective du résultat
 
 
 def route(
@@ -68,8 +69,76 @@ def route(
     corridor_margin : marge relative du corridor start-finish (défaut 0.2 = +20 %) ;
         les candidats hors de l'ellipse de foyers start/finish, dont le grand axe
         vaut (1 + marge) x distance directe, sont élagués avant tout autre test.
-        None désactive l'élagage par corridor.
+        None désactive l'élagage par corridor. Fallback : si le calcul échoue
+        (found=False) avec un corridor actif, route() retente automatiquement
+        sans corridor et rend le meilleur des deux résultats — une route
+        trouvable (ex. contournement de cap dont le détour excède la marge)
+        ne doit jamais être refusée à cause de cette optimisation. Le résultat
+        porte la marge effectivement utilisée (corridor_margin) ; en cas de
+        re-run, phase_timings reflète le second calcul, celui du résultat.
     """
+    result = _route_impl(
+        start,
+        finish,
+        polar=polar,
+        wind=wind,
+        dt=dt,
+        horizon_h=horizon_h,
+        heading_step=heading_step,
+        bin_deg=bin_deg,
+        arrival_nm=arrival_nm,
+        tws_max=tws_max,
+        land=land,
+        bathy=bathy,
+        min_depth_m=min_depth_m,
+        phase_timings=phase_timings,
+        corridor_margin=corridor_margin,
+    )
+    result.corridor_margin = corridor_margin
+    if result.found or corridor_margin is None:
+        return result
+    # Fallback corridor : 2e essai sans corridor, meilleur des deux résultats.
+    retry = _route_impl(
+        start,
+        finish,
+        polar=polar,
+        wind=wind,
+        dt=dt,
+        horizon_h=horizon_h,
+        heading_step=heading_step,
+        bin_deg=bin_deg,
+        arrival_nm=arrival_nm,
+        tws_max=tws_max,
+        land=land,
+        bathy=bathy,
+        min_depth_m=min_depth_m,
+        phase_timings=phase_timings,
+        corridor_margin=None,
+    )
+    retry.corridor_margin = None
+    if retry.found or retry.min_dist_nm <= result.min_dist_nm:
+        return retry
+    return result
+
+
+def _route_impl(
+    start,
+    finish,
+    polar: Polar,
+    wind,
+    dt=1800.0,
+    horizon_h=72.0,
+    heading_step=5.0,
+    bin_deg=0.25,
+    arrival_nm=5.0,
+    tws_max=None,
+    land=_AUTO_LAND,
+    bathy: DepthMask | None = None,
+    min_depth_m=None,
+    phase_timings=None,
+    corridor_margin=0.2,
+):
+    """Corps du calcul par isochrones (le fallback corridor est géré par route())."""
     if phase_timings is not None:
         phase_timings.update(
             sample_wind_s=0.0,

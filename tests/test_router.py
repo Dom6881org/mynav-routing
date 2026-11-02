@@ -180,3 +180,53 @@ def test_route_corridor_keeps_route():
     b = route(corridor_margin=None, **kw)
     assert a.found and b.found
     assert a.eta_s == pytest.approx(b.eta_s, rel=0.1)
+
+
+def test_route_corridor_fallback_contournement():
+    from mynav_routing import LandMask
+
+    # Mur de terre coupant la ligne directe : le seul passage (au sud du mur)
+    # sort de l'ellipse corridor (+20 %), comme un contournement de cap.
+    # Le fallback doit retenter sans corridor et trouver la route.
+    wall = [(42.3, 3.2), (42.3, 3.3), (43.0, 3.3), (43.0, 3.2)]
+    land = LandMask([wall], sample_nm=0.25)
+    polar = Polar.from_file(str(EX))
+    wind = ConstantWind(direction_from_deg=270, speed_kts=12)
+    res = route(
+        start=(42.62, 3.02),
+        finish=(42.62, 3.5),
+        polar=polar,
+        wind=wind,
+        horizon_h=24.0,
+        dt=1800.0,
+        bin_deg=0.05,
+        arrival_nm=5.0,
+        land=land,
+    )
+    assert res.found
+    # La route vient du second essai : corridor effectif désactivé.
+    assert res.corridor_margin is None
+    # Elle passe au sud du mur.
+    assert min(c[0] for c in res.coords) < 42.3
+
+
+def test_route_corridor_effectif_quand_trouvee_au_premier_essai():
+    polar = Polar.from_file(str(EX))
+    wind = ConstantWind(direction_from_deg=270, speed_kts=12)
+    kw = {
+        "start": (42.62, 3.02),
+        "finish": (42.62, 3.5),
+        "polar": polar,
+        "wind": wind,
+        "horizon_h": 24.0,
+        "dt": 1800.0,
+        "bin_deg": 0.05,
+        "arrival_nm": 5.0,
+        "land": None,
+    }
+    res = route(**kw)
+    assert res.found
+    assert res.corridor_margin == 0.2
+    res_sans = route(corridor_margin=None, **kw)
+    assert res_sans.found
+    assert res_sans.corridor_margin is None
