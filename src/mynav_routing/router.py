@@ -1,4 +1,4 @@
-successfully downloaded text file (SHA: e27cdac9058fe936c6e527bd7c641166a194b91e)"""Façade de routage météo pour MyNavApp.
+"""Façade de routage météo pour MyNavApp.
 
 route() calcule la trajectoire la plus rapide par méthode des isochrones :
 à chaque pas, le front des positions atteignables est propagé sur tous les caps
