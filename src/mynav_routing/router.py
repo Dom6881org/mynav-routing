@@ -40,6 +40,10 @@ class RouteResult:
     # B1 : une entrée bool par point (même convention que sog_kts) — tronçon
     # d'arrivée au point passé en moteur ; None = pur voile (back-compat).
     motor_flags: list | None = None
+    # Départ hors zone du champ GRIB (issue MyNavApp #141) : False = le champ
+    # nearest-clippe le départ (vent du bord de grille, sans erreur) ; True =
+    # couvert ; None = vent sans emprise connue (ex. ConstantWind).
+    start_in_grib: bool | None = None
 
 
 def route(
@@ -92,6 +96,11 @@ def route(
         GeoJSON. None = pur voile, aucun relais (back-compat, motor_flags
         vaut alors None).
     """
+    # Départ hors zone GRIB (#141) : détection par duck-typing — un WindField
+    # qui connaît son emprise expose covers() (GRIBWindField) ; ConstantWind
+    # n'en a pas et start_in_grib reste None.
+    covers = getattr(wind, "covers", None)
+    start_in_grib = None if covers is None else bool(covers(start[0], start[1]))
     result = _route_impl(
         start,
         finish,
@@ -111,6 +120,7 @@ def route(
         engine_below_kts=engine_below_kts,
     )
     result.corridor_margin = corridor_margin
+    result.start_in_grib = start_in_grib
     if result.found or corridor_margin is None:
         return result
     # Fallback corridor : 2e essai sans corridor, meilleur des deux résultats.
@@ -133,6 +143,7 @@ def route(
         engine_below_kts=engine_below_kts,
     )
     retry.corridor_margin = None
+    retry.start_in_grib = start_in_grib
     if retry.found or retry.min_dist_nm <= result.min_dist_nm:
         return retry
     return result

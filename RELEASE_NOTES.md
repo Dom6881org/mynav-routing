@@ -1,3 +1,23 @@
+# mynav-routing v0.6.0 — Départ hors zone GRIB signalé
+
+## Nouveautés depuis v0.5.0
+- **`GRIBWindField.covers(lat, lon)`** : True si la position est dans l'emprise du
+  champ (vectorisée, scalaires acceptés). `sample()` nearest-clippe silencieusement
+  toute position hors emprise (vent du bord de grille, sans erreur) — `covers()`
+  permet de le détecter : fin du clip silencieux (MyNavApp #141).
+- **`RouteResult.start_in_grib`** : `True` (départ couvert) / `False` (départ hors
+  zone : le vent du départ est celui du bord de grille) / `None` (vent sans emprise
+  connue, ex. ConstantWind — back-compat complet). Détection par duck-typing dans
+  `route()` : tout `WindField` exposant `covers()` est interrogé, aucun autre
+  changement de comportement (corridor, fallback, moteur B1 inchangés).
+- L'app MyNavApp surface l'avertissement côté serveur/panneau de routage dans une
+  PR séparée (politique #56 : moteur d'abord, puis intégration).
+
+## Technique
+- Tests : `covers` (dedans/hors emprise/vectorisé), départ hors zone →
+  `start_in_grib` False avec route trouvée au vent du bord, départ couvert → True,
+  vent constant → None.
+
 # mynav-routing v0.5.0 — Voile/moteur (B1)
 
 ## Nouveautés depuis v0.4.0
