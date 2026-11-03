@@ -7,10 +7,10 @@ from .polar import Polar
 from .router import ENGINE_SPEED_KTS, RouteResult, route, to_geojson
 
 __all__ = [
+    "ENGINE_SPEED_KTS",
     "BathyDataError",
     "ConstantWind",
     "DepthMask",
-    "ENGINE_SPEED_KTS",
     "GRIBWindField",
     "LandDataError",
     "LandMask",
