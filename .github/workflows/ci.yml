@@ -31,18 +31,19 @@ jobs:
         run: ruff check src tests --output-format=github
       - name: Tests
         run: |
+          set +e
           pytest -q > pytest.log 2>&1
           code=$?
+          set -e
           if [ $code -ne 0 ]; then
             grep -E '^(FAILED|ERROR)' pytest.log | while IFS= read -r line; do
               echo "::error title=pytest::$line"
             done
-            tail -c 1200 pytest.log | tr '\n' '¦' | sed 's/¦/ / /g' | while IFS= read -r line; do
+            tail -c 1500 pytest.log | tr '\n' '¦' | sed 's/¦/ \/ /g' | while IFS= read -r line; do
               echo "::error title=pytest-log::$line"
             done
           fi
           exit $code
-
   routing-benchmark:
     if: github.event_name == 'workflow_dispatch' && inputs.run_routing_benchmark
     runs-on: ubuntu-latest
