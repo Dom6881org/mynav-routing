@@ -13,8 +13,9 @@
 
 ## Technique
 - Tests : seuil paramétrable (voile 2.1 kn vs moteur 4.0 kn), zone morte au vent
-  (route moteur directe plus rapide que le près serré), vent navigable (aucun moteur),
-  alignement flags/sog_kts/coords, GeoJSON avec et sans `motor`.
+  (route introuvable en pur voile, trouvée en relais moteur), vent navigable
+  (aucun moteur), alignement flags/sog_kts/coords, tronçons moteur à vitesse
+  constante, GeoJSON avec et sans `motor`.
 
 ## Cadrage
 Dom6881org/MyNavApp#133 (livrable 1/2 — l'app MyNavApp suit dans une PR séparée :
