@@ -406,6 +406,8 @@ def test_route_vent_constant_start_in_grib_none():
         wind=wind,
         horizon_h=24.0,
         dt=1800.0,
+        bin_deg=0.05,
+        arrival_nm=5.0,
         land=None,
     )
     assert res.found
