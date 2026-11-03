@@ -1,0 +1,29 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - VERSION
+      - RELEASE_NOTES.md
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Create GitHub release
+        run: |
+          VERSION_NUMBER=$(cat VERSION)
+          if gh release view "v${VERSION_NUMBER}" > /dev/null 2>&1; then
+            echo "Release v${VERSION_NUMBER} existe deja — rien a faire."
+          else
+            gh release create "v${VERSION_NUMBER}" --title "v${VERSION_NUMBER}" --notes-file RELEASE_NOTES.md --target main
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
