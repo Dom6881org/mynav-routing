@@ -25,16 +25,16 @@ EX = Path(__file__).resolve().parent.parent / "examples" / "polaire-sugar.pol"
 
 # Routes terrain : (départ, arrivée, étiquette).
 ROUTES_COURTES = [
-    # Côte ouverte ~2,5 mn : contrôle, ne doit jamais régresser.
-    ((42.481, 3.139), (42.477, 3.083), "cote-ouverte-banyuls-collioure"),
+    # Côte ouverte ~3,5 mn : contrôle, ne doit jamais régresser.
+    ((42.481, 3.139), (42.526, 3.084), "cote-ouverte-banyuls-collioure"),
     # Contournement du Cap Béar (~3 mn) : le cas court signalé sur le terrain.
     ((42.500, 3.100), (42.535, 3.150), "contournement-cap-bear"),
     # Contournement du Cap de Creus (22,5 mn) : le cas mynav-routing #28.
     ((42.61932, 3.04720), (42.25284, 3.15549), "contournement-cap-de-creus"),
 ]
 
-# Traversée longue du golfe du Lion (~190 mn), dt/bin_deg comme l'app (>150 mn).
-TRAVERSEE = ((42.619, 3.047), (42.568, 8.759), "banyuls-calvi")
+# Traversée longue du golfe du Lion (~250 mn), dt/bin_deg comme l'app (>150 mn).
+TRAVERSEE = ((42.481, 3.139), (42.568, 8.759), "banyuls-calvi")
 
 # Vents de campagne : tramontane modérée, levant au près, tramontane forte.
 VENTS = [
@@ -144,4 +144,4 @@ def test_acceptance_traversee_longue(land, polar, direction, speed, vent):
     )
     assert 24.0 * 3600.0 < res.eta_s, f"ETA invraisemblable : {res.eta_s / 3600.0:.1f} h"
     distance_nm = haversine_nm(*start, *finish)
-    assert 170.0 <= distance_nm <= 210.0, f"distance inattendue : {distance_nm:.1f} mn"
+    assert 240.0 <= distance_nm <= 260.0, f"distance inattendue : {distance_nm:.1f} mn"
