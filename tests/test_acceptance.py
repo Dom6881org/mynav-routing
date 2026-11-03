@@ -138,7 +138,7 @@ def test_acceptance_matrice_routes_courtes(
 @pytest.mark.parametrize("direction,speed,vent", VENTS, ids=[v[2] for v in VENTS])
 def test_acceptance_traversee_longue(land, polar, direction, speed, vent):
     """Matrice opt-in : traversée Banyuls -> Calvi (~190 mn) dans l'horizon."""
-    start, finish, nom = TRAVERSEE
+    start, finish, _nom = TRAVERSEE
     res, _duration = _route_acceptation(
         land, polar, start, finish, direction, speed, 3600.0, 0.04, 1200.0
     )
