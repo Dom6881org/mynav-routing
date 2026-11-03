@@ -37,4 +37,4 @@ serveur + champ « Motor below (kt) » + trace moteur + re-pin v0.5.0).
 - Le paquet porte désormais la vraie version `0.4.0` (jusqu'ici figé à `0.3.3` à tous les SHA).
 
 ## Issues fermées
-#16, #17, #19, #26, #28, ##30
+#16, #17, #19, #26, #28, #30

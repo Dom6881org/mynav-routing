@@ -173,7 +173,6 @@ def test_route_corridor_keeps_route():
         "polar": polar,
         "wind": wind,
         "horizon_h": 24.0,
-        "dt": 1800.0,
         "bin_deg": 0.05,
         "land": None,
     }
