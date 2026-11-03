@@ -325,3 +325,90 @@ def test_route_moteur_vent_navigable():
     )
     assert res.found
     assert res.motor_flags is not None and not any(res.motor_flags)
+
+
+class _EmpriseWind(ConstantWind):
+    """Vent constant borné à une emprise : expose covers() comme GRIBWindField (#141)."""
+
+    def __init__(self, lat_min, lat_max, lon_min, lon_max):
+        super().__init__(direction_from_deg=270, speed_kts=12)
+        self.lat_min, self.lat_max = lat_min, lat_max
+        self.lon_min, self.lon_max = lon_min, lon_max
+
+    def covers(self, lat, lon):
+        lat = np.atleast_1d(np.asarray(lat, dtype=float))
+        lon = np.atleast_1d(np.asarray(lon, dtype=float))
+        return (
+            (lat >= self.lat_min)
+            & (lat <= self.lat_max)
+            & (lon >= self.lon_min)
+            & (lon <= self.lon_max)
+        )
+
+
+def test_grib_wind_field_covers():
+    from mynav_routing import GRIBWindField
+
+    field = GRIBWindField.__new__(GRIBWindField)
+    field.latitude = np.array([42.0, 43.0])
+    field.longitude = np.array([2.0, 3.0])
+    assert bool(field.covers(42.5, 2.5))
+    assert not bool(field.covers(41.0, 2.5))  # au sud de l'emprise
+    assert not bool(field.covers(42.5, 4.0))  # à l'est de l'emprise
+    assert bool(field.covers(np.array([42.5]), np.array([2.5]))[0])  # vectorisé
+
+
+def test_route_depart_hors_zone_grib_signale():
+    # Emprise à l'est du départ : sample() nearest-clippe (vent du bord),
+    # route() doit l'exposer via start_in_grib=False (#141).
+    polar = Polar.from_file(str(EX))
+    wind = _EmpriseWind(lat_min=42.0, lat_max=43.0, lon_min=5.0, lon_max=6.0)
+    res = route(
+        start=(42.62, 3.02),
+        finish=(42.62, 3.5),
+        polar=polar,
+        wind=wind,
+        horizon_h=24.0,
+        dt=1800.0,
+        bin_deg=0.05,
+        arrival_nm=5.0,
+        land=None,
+    )
+    assert res.found
+    assert res.start_in_grib is False
+
+
+def test_route_depart_dans_zone_grib_couvert():
+    polar = Polar.from_file(str(EX))
+    wind = _EmpriseWind(lat_min=42.0, lat_max=43.0, lon_min=2.0, lon_max=4.0)
+    res = route(
+        start=(42.62, 3.02),
+        finish=(42.62, 3.5),
+        polar=polar,
+        wind=wind,
+        horizon_h=24.0,
+        dt=1800.0,
+        bin_deg=0.05,
+        arrival_nm=5.0,
+        land=None,
+    )
+    assert res.found
+    assert res.start_in_grib is True
+
+
+def test_route_vent_constant_start_in_grib_none():
+    polar = Polar.from_file(str(EX))
+    wind = ConstantWind(direction_from_deg=270, speed_kts=12)
+    res = route(
+        start=(42.62, 3.02),
+        finish=(42.62, 3.5),
+        polar=polar,
+        wind=wind,
+        horizon_h=24.0,
+        dt=1800.0,
+        bin_deg=0.05,
+        arrival_nm=5.0,
+        land=None,
+    )
+    assert res.found
+    assert res.start_in_grib is None

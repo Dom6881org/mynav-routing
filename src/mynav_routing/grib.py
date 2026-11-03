@@ -53,6 +53,23 @@ class GRIBWindField(WindField):
 
         return cls(xr.open_dataset(path, engine="cfgrib"))
 
+    def covers(self, lat, lon):
+        """True si la position est dans l'emprise (lat/lon) du champ.
+
+        sample() nearest-clippe silencieusement toute position hors emprise
+        (vent du bord de grille, sans erreur) : covers() permet aux appelants
+        de détecter ce cas avant d'interpréter un résultat (MyNavApp #141).
+        Vectorisée comme sample() ; scalaires acceptés.
+        """
+        lat = np.atleast_1d(np.asarray(lat, dtype=float))
+        lon = np.atleast_1d(np.asarray(lon, dtype=float))
+        return (
+            (lat >= self.latitude.min())
+            & (lat <= self.latitude.max())
+            & (lon >= self.longitude.min())
+            & (lon <= self.longitude.max())
+        )
+
     def sample(self, lat, lon, t):
         lat = np.atleast_1d(np.asarray(lat, dtype=float))
         lon = np.atleast_1d(np.asarray(lon, dtype=float))
