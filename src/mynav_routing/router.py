@@ -22,17 +22,24 @@ from .polar import Polar
 
 _AUTO_LAND = object()
 
+# B1 voile/moteur : vitesse moteur constante (kt) prise en relais dès que la
+# vitesse voile issue de la polaire passe sous le seuil engine_below_kts.
+ENGINE_SPEED_KTS = 4.0
+
 
 @dataclass
 class RouteResult:
     found: bool
     coords: list          # [(lat, lon), ...] du départ à l'arrivée
     times_s: list         # temps cumulé (s) à chaque point
-    sog_kts: list         # vitesse surface (kt) sur chaque tronçon
-    headings_deg: list    # cap suivi sur chaque tronçon
+    sog_kts: list         # vitesse surface (kt) d'arrivée à chaque point
+    headings_deg: list    # cap suivi pour arriver à chaque point
     eta_s: float = 0.0
     min_dist_nm: float = float("inf")
     corridor_margin: float | None = None  # marge corridor effective du résultat
+    # B1 : une entrée bool par point (même convention que sog_kts) — tronçon
+    # d'arrivée au point passé en moteur ; None = pur voile (back-compat).
+    motor_flags: list | None = None
 
 
 def route(
@@ -51,6 +58,7 @@ def route(
     min_depth_m=None,
     phase_timings=None,
     corridor_margin=0.2,
+    engine_below_kts=2.0,
 ):
     """Calcule la route la plus rapide de start vers finish.
 
@@ -76,6 +84,13 @@ def route(
         ne doit jamais être refusée à cause de cette optimisation. Le résultat
         porte la marge effectivement utilisée (corridor_margin) ; en cas de
         re-run, phase_timings reflète le second calcul, celui du résultat.
+    engine_below_kts : seuil de vitesse voile (kt, défaut 2.0) sous lequel le
+        moteur prend le relais (B1) : la vitesse polaire du tronçon est
+        remplacée par ENGINE_SPEED_KTS (4.0 kt), cap inchangé, et le tronçon
+        est marqué moteur dans RouteResult.motor_flags (une entrée par point,
+        même convention que sog_kts) ainsi que dans properties.motor du
+        GeoJSON. None = pur voile, aucun relais (back-compat, motor_flags
+        vaut alors None).
     """
     result = _route_impl(
         start,
@@ -93,6 +108,7 @@ def route(
         min_depth_m=min_depth_m,
         phase_timings=phase_timings,
         corridor_margin=corridor_margin,
+        engine_below_kts=engine_below_kts,
     )
     result.corridor_margin = corridor_margin
     if result.found or corridor_margin is None:
@@ -114,6 +130,7 @@ def route(
         min_depth_m=min_depth_m,
         phase_timings=phase_timings,
         corridor_margin=None,
+        engine_below_kts=engine_below_kts,
     )
     retry.corridor_margin = None
     if retry.found or retry.min_dist_nm <= result.min_dist_nm:
@@ -137,8 +154,9 @@ def _route_impl(
     min_depth_m=None,
     phase_timings=None,
     corridor_margin=0.2,
+    engine_below_kts=2.0,
 ):
-    """Corps du calcul par isochrones (le fallback corridor est géré par route())."""
+    """Corps du calcul par isochrones (fallback corridor : route(), moteur B1)."""
     if phase_timings is not None:
         phase_timings.update(
             sample_wind_s=0.0,
@@ -158,6 +176,7 @@ def _route_impl(
             "lon": np.array([float(start[1])]),
             "hdg": np.array([0.0]),
             "bs": np.array([0.0]),
+            "mot": np.array([False]),
             "parent": np.array([-1]),
         }
     ]
@@ -183,27 +202,35 @@ def _route_impl(
         tws = np.hypot(u, v)
         twa = (hdg - wind_from) % 360.0
         bs = polar.speed_grid(tws, twa)
+        # B1 : relais moteur — sous le seuil de vitesse voile, le tronçon
+        # passe en moteur à vitesse constante, cap inchangé.
+        mot = np.zeros(len(bs), dtype=bool)
+        if engine_below_kts is not None:
+            mot = bs < engine_below_kts
+            bs = np.where(mot, ENGINE_SPEED_KTS, bs)
         keep = bs > 0.1
         if tws_max is not None:
             keep &= tws <= tws_max
         if not keep.any():
             break
-        lat_r, lon_r, hdg, bs, parent = (
+        lat_r, lon_r, hdg, bs, mot, parent = (
             lat_r[keep],
             lon_r[keep],
             hdg[keep],
             bs[keep],
+            mot[keep],
             parent[keep],
         )
         lat2, lon2 = move_nm(lat_r, lon_r, hdg, bs * dt / 3600.0)
         if corridor_margin is not None:
             in_corridor = corridor_mask(lat2, lon2, start, finish, corridor_margin, direct_nm)
             if not in_corridor.all():
-                lat2, lon2, hdg, bs, parent = (
+                lat2, lon2, hdg, bs, mot, parent = (
                     lat2[in_corridor],
                     lon2[in_corridor],
                     hdg[in_corridor],
                     bs[in_corridor],
+                    mot[in_corridor],
                     parent[in_corridor],
                 )
                 lat_r, lon_r = lat_r[in_corridor], lon_r[in_corridor]
@@ -220,7 +247,14 @@ def _route_impl(
             shallow = bathy.crosses_shallow(lat_r, lon_r, lat2, lon2, min_depth_m)
             ok = ~shallow if ok is None else (ok & ~shallow)
         if ok is not None:
-            lat2, lon2, hdg, bs, parent = lat2[ok], lon2[ok], hdg[ok], bs[ok], parent[ok]
+            lat2, lon2, hdg, bs, mot, parent = (
+                lat2[ok],
+                lon2[ok],
+                hdg[ok],
+                bs[ok],
+                mot[ok],
+                parent[ok],
+            )
             if len(lat2) == 0:
                 break
         # Élagage : un seul point par cellule de bin_deg degrés, celui de temps
@@ -235,11 +269,12 @@ def _route_impl(
         first[0] = True
         first[1:] = ks[1:] != ks[:-1]
         idx = order[first]
-        lat2, lon2, hdg, bs, parent, d = (
+        lat2, lon2, hdg, bs, mot, parent, d = (
             lat2[idx],
             lon2[idx],
             hdg[idx],
             bs[idx],
+            mot[idx],
             parent[idx],
             d[idx],
         )
@@ -256,19 +291,22 @@ def _route_impl(
                 lat2, lon2, float(finish[0]), float(finish[1]), min_depth_m
             )
         fronts.append(
-            {"lat": lat2, "lon": lon2, "hdg": hdg, "bs": bs, "parent": parent}
+            {"lat": lat2, "lon": lon2, "hdg": hdg, "bs": bs, "mot": mot, "parent": parent}
         )
         if reached.any():
             i = int(np.argmin(np.where(reached, d, np.inf)))
-            coords, bs_list, hdg_list = _traceback(fronts, i)
+            coords, bs_list, hdg_list, mot_list = _traceback(fronts, i)
             if len(bs_list) > 1 and bs_list[0] == 0.0:
                 bs_list[0] = bs_list[1]
+            if len(mot_list) > 1:
+                mot_list[0] = mot_list[1]
             times = [x * dt for x in range(len(coords))]
             bs_final = max(bs_list[-1], 0.1)
             eta = times[-1] + float(d[i]) / bs_final
             coords.append((float(finish[0]), float(finish[1])))
             bs_list.append(bs_final)
             hdg_list.append(hdg_list[-1])
+            mot_list.append(mot_list[-1])
             times.append(eta)
             return RouteResult(
                 found=True,
@@ -278,6 +316,7 @@ def _route_impl(
                 headings_deg=hdg_list,
                 eta_s=eta,
                 min_dist_nm=float(d[i]),
+                motor_flags=_flags(mot_list, engine_below_kts),
             )
     # Horizon dépassé : retourner la meilleure progression atteinte
     best_d, best_step, best_i = None, 0, 0
@@ -287,9 +326,11 @@ def _route_impl(
             m = float(np.min(dd))
             if best_d is None or m < best_d:
                 best_d, best_step, best_i = m, step, int(np.argmin(dd))
-    coords, bs_list, hdg_list = _traceback(fronts[: best_step + 1], best_i)
+    coords, bs_list, hdg_list, mot_list = _traceback(fronts[: best_step + 1], best_i)
     if len(bs_list) > 1 and bs_list[0] == 0.0:
         bs_list[0] = bs_list[1]
+    if len(mot_list) > 1:
+        mot_list[0] = mot_list[1]
     times = [x * dt for x in range(len(coords))]
     return RouteResult(
         found=False,
@@ -299,6 +340,7 @@ def _route_impl(
         headings_deg=hdg_list,
         eta_s=0.0,
         min_dist_nm=best_d if best_d is not None else float("inf"),
+        motor_flags=_flags(mot_list, engine_below_kts),
     )
 
 
@@ -326,25 +368,38 @@ def cell_keys(lat, lon, bin_deg):
 
 
 def _traceback(fronts, i):
-    coords, bs_list, hdg_list = [], [], []
+    coords, bs_list, hdg_list, mot_list = [], [], [], []
     step, j = len(fronts) - 1, int(i)
     while step >= 0:
         f = fronts[step]
         coords.append((float(f["lat"][j]), float(f["lon"][j])))
         bs_list.append(float(f["bs"][j]))
         hdg_list.append(float(f["hdg"][j]))
+        mot_list.append(bool(f["mot"][j]))
         j = int(f["parent"][j])
         step -= 1
     coords.reverse()
     bs_list.reverse()
     hdg_list.reverse()
-    return coords, bs_list, hdg_list
+    mot_list.reverse()
+    return coords, bs_list, hdg_list, mot_list
+
+
+def _flags(mot_list, engine_below_kts):
+    """motor_flags exposé : None en pur voile (back-compat), sinon une entrée par point."""
+    return list(mot_list) if engine_below_kts is not None else None
 
 
 def to_geojson(res: RouteResult):
     """Export GeoJSON (LineString [lon, lat]) pour la carte Leaflet de MyNavApp."""
     if not res.found:
         raise ValueError("Aucune route trouvée (horizon dépassé)")
+    props = {
+        "eta_s": res.eta_s,
+        "sog_kts": [round(s, 2) for s in res.sog_kts],
+    }
+    if res.motor_flags is not None:
+        props["motor"] = [bool(m) for m in res.motor_flags]
     return {
         "type": "FeatureCollection",
         "features": [
@@ -354,10 +409,7 @@ def to_geojson(res: RouteResult):
                     "type": "LineString",
                     "coordinates": [[lon, lat] for lat, lon in res.coords],
                 },
-                "properties": {
-                    "eta_s": res.eta_s,
-                    "sog_kts": [round(s, 2) for s in res.sog_kts],
-                },
+                "properties": props,
             }
         ],
     }

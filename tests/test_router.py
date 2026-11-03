@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from mynav_routing import ConstantWind, Polar, route, to_geojson
+from mynav_routing import ENGINE_SPEED_KTS, ConstantWind, Polar, route, to_geojson
 from mynav_routing.engine.isochrones import haversine_nm, move_nm
 
 EX = Path(__file__).resolve().parent.parent / "examples" / "polaire-sugar.pol"
@@ -173,6 +173,7 @@ def test_route_corridor_keeps_route():
         "polar": polar,
         "wind": wind,
         "horizon_h": 24.0,
+        "dt": 1800.0,
         "bin_deg": 0.05,
         "land": None,
     }
@@ -230,3 +231,86 @@ def test_route_corridor_effectif_quand_trouvee_au_premier_essai():
     res_sans = route(corridor_margin=None, **kw)
     assert res_sans.found
     assert res_sans.corridor_margin is None
+
+
+def test_route_moteur_seuil_parametrable():
+    # B1 : vent arrière 4 kt -> polaire 2.1 kn au vent arrière. Seuil défaut
+    # (2.0 kt) : la route reste en pur voile ; à 2.5 kt le moteur prend le
+    # relais à 4.0 kn sur tous les tronçons ; None = pur voile (back-compat).
+    polar = Polar.from_file(str(EX))
+    wind = ConstantWind(direction_from_deg=270, speed_kts=4)
+    kw = {
+        "start": (42.62, 3.02),
+        "finish": (42.62, 3.5),
+        "polar": polar,
+        "wind": wind,
+        "horizon_h": 24.0,
+        "dt": 1800.0,
+        "bin_deg": 0.05,
+        "arrival_nm": 5.0,
+        "land": None,
+    }
+    res_voile = route(engine_below_kts=None, **kw)
+    assert res_voile.found
+    assert res_voile.motor_flags is None  # pur voile : pas de flags (back-compat)
+    assert "motor" not in to_geojson(res_voile)["features"][0]["properties"]
+
+    res_def = route(**kw)
+    assert res_def.found
+    assert res_def.motor_flags is not None and not any(res_def.motor_flags)
+
+    res_mot = route(engine_below_kts=2.5, **kw)
+    assert res_mot.found
+    assert res_mot.motor_flags is not None and all(res_mot.motor_flags)
+    # alignement : une entrée par point, comme sog_kts et coords
+    assert len(res_mot.motor_flags) == len(res_mot.sog_kts) == len(res_mot.coords)
+    assert all(s == pytest.approx(ENGINE_SPEED_KTS) for s in res_mot.sog_kts)
+    geo = to_geojson(res_mot)
+    assert geo["features"][0]["properties"]["motor"] == res_mot.motor_flags
+
+
+def test_route_moteur_zone_morte():
+    # B1 défaut : au vent, la zone morte de la polaire (TWA < ~40°, vitesse 0)
+    # passe en moteur à 4.0 kn : la route au vent devient directe, plus rapide
+    # que le près serré en pur voile.
+    polar = Polar.from_file(str(EX))
+    wind = ConstantWind(direction_from_deg=270, speed_kts=4)
+    kw = {
+        "start": (42.62, 3.02),
+        "finish": (42.62, 2.6),
+        "polar": polar,
+        "wind": wind,
+        "horizon_h": 24.0,
+        "dt": 1800.0,
+        "bin_deg": 0.05,
+        "arrival_nm": 5.0,
+        "land": None,
+    }
+    res = route(**kw)
+    assert res.found
+    assert res.motor_flags is not None and all(res.motor_flags)
+    assert all(s == pytest.approx(ENGINE_SPEED_KTS) for s in res.sog_kts)
+    res_voile = route(engine_below_kts=None, **kw)
+    assert res_voile.found
+    assert res_voile.motor_flags is None
+    assert res.eta_s < res_voile.eta_s
+
+
+def test_route_moteur_vent_navigable():
+    # B1 défaut : vent navigable (12 kt, vent arrière ~4.7 kn) -> aucun
+    # tronçon moteur, flags présents et tous faux.
+    polar = Polar.from_file(str(EX))
+    wind = ConstantWind(direction_from_deg=270, speed_kts=12)
+    res = route(
+        start=(42.62, 3.02),
+        finish=(42.62, 3.5),
+        polar=polar,
+        wind=wind,
+        horizon_h=24.0,
+        dt=1800.0,
+        bin_deg=0.05,
+        arrival_nm=5.0,
+        land=None,
+    )
+    assert res.found
+    assert res.motor_flags is not None and not any(res.motor_flags)

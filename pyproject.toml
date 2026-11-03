@@ -1,7 +1,7 @@
 [project]
 name = "mynav-routing"
-version = "0.4.0"
-description = "Moteur de routage météo (isochrones) pour MyNavApp - polaires, GRIB, open data"
+version = "0.5.0"
+description = "Moteau de routage météo (isochrones) pour MyNavApp - polaires, GRIB, open data"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

@@ -4,12 +4,13 @@ from .bathy import BathyDataError, DepthMask
 from .grib import ConstantWind, GRIBWindField, WindField
 from .land import LandDataError, LandMask
 from .polar import Polar
-from .router import RouteResult, route, to_geojson
+from .router import ENGINE_SPEED_KTS, RouteResult, route, to_geojson
 
 __all__ = [
     "BathyDataError",
     "ConstantWind",
     "DepthMask",
+    "ENGINE_SPEED_KTS",
     "GRIBWindField",
     "LandDataError",
     "LandMask",
@@ -19,4 +20,4 @@ __all__ = [
     "route",
     "to_geojson",
 ]
-__version__ = "0.3.3"
+__version__ = "0.5.0"
